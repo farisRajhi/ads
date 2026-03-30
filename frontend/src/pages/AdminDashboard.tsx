@@ -311,9 +311,19 @@ function LocationsView({
                     <td className="px-6 py-3 font-medium text-gray-900">{v.country || '—'}</td>
                     <td className="px-6 py-3 text-gray-700">{v.city || '—'}</td>
                     <td className="px-6 py-3 text-gray-500">{v.region || '—'}</td>
-                    <td className="px-6 py-3 text-gray-500 font-mono text-xs">
+                    <td className="px-6 py-3 font-mono text-xs">
                       {v.latitude && v.longitude
-                        ? `${v.latitude.toFixed(2)}, ${v.longitude.toFixed(2)}`
+                        ? (
+                          <a
+                            href={`https://www.google.com/maps?q=${v.latitude},${v.longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-dental-600 hover:text-dental-800 hover:underline transition-colors"
+                          >
+                            <MapPin className="w-3.5 h-3.5" />
+                            {v.latitude.toFixed(6)}, {v.longitude.toFixed(6)}
+                          </a>
+                        )
                         : '—'}
                     </td>
                     <td className="px-6 py-3 text-gray-400 font-mono text-xs">{v.ip}</td>
