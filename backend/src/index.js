@@ -14,7 +14,74 @@ app.use(express.json())
 // Trust proxy for getting real IP behind reverse proxies
 app.set('trust proxy', true)
 
-// ─── IP Geolocation Tracking ───────────────────────────────
+// ─── Multi-source IP Geolocation ─────────────────────────────
+// Query 3 free APIs in parallel, pick the best result by consensus
+async function geolocateIP(ip) {
+  const sources = await Promise.allSettled([
+    // Source 1: ip-api.com (45 req/min, no key)
+    axios.get(`http://ip-api.com/json/${ip}?fields=status,country,city,regionName,lat,lon`, { timeout: 4000 })
+      .then(r => r.data.status === 'success' ? {
+        country: r.data.country, city: r.data.city, region: r.data.regionName,
+        lat: r.data.lat, lon: r.data.lon, src: 'ip-api'
+      } : null),
+    // Source 2: ipwho.is (free, no key, no rate limit listed)
+    axios.get(`https://ipwho.is/${ip}`, { timeout: 4000 })
+      .then(r => r.data.success !== false ? {
+        country: r.data.country, city: r.data.city, region: r.data.region,
+        lat: r.data.latitude, lon: r.data.longitude, src: 'ipwhois'
+      } : null),
+    // Source 3: ipapi.co (free 1k/day, no key)
+    axios.get(`https://ipapi.co/${ip}/json/`, { timeout: 4000 })
+      .then(r => !r.data.error ? {
+        country: r.data.country_name, city: r.data.city, region: r.data.region,
+        lat: r.data.latitude, lon: r.data.longitude, src: 'ipapi.co'
+      } : null),
+  ])
+
+  const results = sources
+    .filter(s => s.status === 'fulfilled' && s.value)
+    .map(s => s.value)
+
+  if (results.length === 0) return null
+
+  // If 2+ APIs agree on the same city — high confidence, use averaged coords
+  if (results.length >= 2) {
+    const cityVotes = {}
+    for (const r of results) {
+      const key = (r.city || '').toLowerCase().trim()
+      if (!key) continue
+      if (!cityVotes[key]) cityVotes[key] = []
+      cityVotes[key].push(r)
+    }
+
+    // Find city with most votes
+    let bestCity = null
+    let bestCount = 0
+    for (const [, voters] of Object.entries(cityVotes)) {
+      if (voters.length > bestCount) {
+        bestCount = voters.length
+        bestCity = voters
+      }
+    }
+
+    if (bestCity && bestCount >= 2) {
+      // Average the coordinates from agreeing sources
+      const avgLat = bestCity.reduce((sum, r) => sum + r.lat, 0) / bestCity.length
+      const avgLon = bestCity.reduce((sum, r) => sum + r.lon, 0) / bestCity.length
+      return {
+        ...bestCity[0],
+        lat: avgLat,
+        lon: avgLon,
+        confidence: 'high',
+        sourcesUsed: bestCity.map(r => r.src).join('+'),
+      }
+    }
+  }
+
+  // No consensus — return first result with low confidence
+  return { ...results[0], confidence: 'low', sourcesUsed: results[0].src }
+}
+
 app.post('/api/analytics/track-location', async (req, res) => {
   try {
     // Get visitor's IP address
@@ -30,24 +97,20 @@ app.post('/api/analytics/track-location', async (req, res) => {
       }
     }
 
-    // Call free geolocation API (ip-api.com — 45 req/min, no key needed)
-    const geoResponse = await axios.get(`http://ip-api.com/json/${ip}`, {
-      timeout: 5000,
-    })
+    const geo = await geolocateIP(ip)
 
-    const geo = geoResponse.data
-
-    if (geo.status === 'success') {
+    if (geo) {
       await prisma.visitorLocation.create({
         data: {
           ip: ip,
           country: geo.country || null,
           city: geo.city || null,
-          region: geo.regionName || null,
+          region: geo.region || null,
           latitude: geo.lat || null,
           longitude: geo.lon || null,
           userAgent: req.headers['user-agent'] || null,
           page: req.headers['referer'] || null,
+          source: geo.confidence === 'high' ? 'ip-verified' : 'ip',
         },
       })
     }

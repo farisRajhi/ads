@@ -12,6 +12,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import axios from 'axios'
+import { onLocationTracked } from '../lib/analytics'
 
 interface LocationData {
   total: number
@@ -27,6 +28,7 @@ interface LocationData {
     longitude: number | null
     visitedAt: string
     userAgent: string | null
+    source: string
   }[]
 }
 
@@ -75,6 +77,8 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     fetchData()
+    // Auto-refresh when a new location is tracked (e.g. user clicks "Allow" on GPS)
+    onLocationTracked(() => fetchData())
   }, [])
 
   const formatDate = (dateStr: string) => {
@@ -300,6 +304,7 @@ function LocationsView({
                   <th className="text-right px-6 py-3 font-medium">المدينة</th>
                   <th className="text-right px-6 py-3 font-medium">المنطقة</th>
                   <th className="text-right px-6 py-3 font-medium">الإحداثيات</th>
+                  <th className="text-right px-6 py-3 font-medium">الدقة</th>
                   <th className="text-right px-6 py-3 font-medium">IP</th>
                   <th className="text-right px-6 py-3 font-medium">التاريخ</th>
                 </tr>
@@ -325,6 +330,24 @@ function LocationsView({
                           </a>
                         )
                         : '—'}
+                    </td>
+                    <td className="px-6 py-3">
+                      {v.source === 'gps' ? (
+                        <span className="inline-flex items-center gap-1 bg-green-50 text-green-700 px-2 py-0.5 rounded-full text-xs font-medium">
+                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                          GPS دقيق
+                        </span>
+                      ) : v.source === 'ip-verified' ? (
+                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs font-medium">
+                          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                          IP متحقق
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-medium">
+                          <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                          IP تقريبي
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-3 text-gray-400 font-mono text-xs">{v.ip}</td>
                     <td className="px-6 py-3 text-gray-500 whitespace-nowrap">{formatDate(v.visitedAt)}</td>
